@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import time
 from pathlib import Path
 
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from scrapling.spiders import Spider, Request, Response
 from scrapling.fetchers import FetcherSession, AsyncFetcherSession
 
@@ -63,8 +64,8 @@ class SICMSpider(Spider):
             logger.error("session_config_failed", error=str(e))
             raise
 
-    async def start_requests(self) -> None:
-        """Generar requests iniciales"""
+    async def start_requests(self):
+        """Generar requests de forma perezosa (lazy)"""
         logger.info(
             "spider_starting",
             start_id=config.START_ID,
@@ -72,20 +73,37 @@ class SICMSpider(Spider):
             total_range=config.END_ID - config.START_ID + 1,
         )
 
+        # Generar requests bajo demanda para evitar cargar ~500k objetos en memoria
+        # Scrapling maneja la cola internamente
         for id_guia in range(config.START_ID, config.END_ID + 1):
             url = f"http://www.sicm.gob.ve/g_4cguia.php?id_guia={id_guia}"
             yield Request(url, meta={"id_guia": id_guia})
 
     async def parse(self, response: Response) -> None:
-        """Procesar respuesta HTML"""
+        """Procesar respuesta HTML con retry automático"""
         id_guia = response.meta.get("id_guia")
         self.stats.total_processed += 1
 
         try:
-            if response.status != 200:
+            # Manejo de errores HTTP transitorios
+            if response.status == 429:
+                logger.warning("rate_limited", id=id_guia)
+                self.stats.total_errors += 1
+                return
+            elif response.status >= 500:
+                logger.warning("server_error", id=id_guia, status=response.status)
+                self.stats.total_errors += 1
+                return
+            elif response.status != 200:
                 logger.warning("http_error", id=id_guia, status=response.status)
                 self.http_errors += 1
                 self.stats.total_errors += 1
+                return
+
+            # Verificar que tenemos contenido
+            if not response.text or len(response.text) < 100:
+                logger.warning("empty_response", id=id_guia, length=len(response.text) if response.text else 0)
+                self.stats.total_skipped += 1
                 return
 
             # Parsear guía del HTML

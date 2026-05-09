@@ -47,6 +47,12 @@ Desktop.ini
 .pytest_cache/
 .coverage
 htmlcov/
+coverage.xml
+
+# CI/CD
+.github/workflows/*.yml
+!.github/workflows/ci.yml
+!.github/workflows/cd.yml
 
 # PostgreSQL data (si se mounta localmente)
 data/

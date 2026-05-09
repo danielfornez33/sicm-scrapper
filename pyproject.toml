@@ -37,7 +37,7 @@ dev = [
 ]
 
 [project.scripts]
-sicm-scraper = "src.main:cli"
+sicm-scraper = "src.cli:main_cli"
 
 [tool.setuptools]
 packages = ["src"]

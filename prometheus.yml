@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'sicm-scraper'
+    environment: 'production'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # SICM Scraper metrics
+  - job_name: 'scraper'
+    static_configs:
+      - targets: ['scraper:9090']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+
+  # PostgreSQL metrics (optional)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 60s
+    scrape_timeout: 30s
