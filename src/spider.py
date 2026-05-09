@@ -18,6 +18,9 @@ from src.config import config
 from src.models import Guia, ScrapingStats
 from src.parser import parse_guia_page
 from src.db import Database
+from src.rate_limiter import AdaptiveRateLimiter, RateLimitConfig
+from src.metrics import metrics
+from src.health import update_scraper_status
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,15 @@ class SICMSpider(Spider):
         self.checkpoint_path = Path(config.CHECKPOINT_DIR) / "progress.pkl"
         self.http_errors = 0
         self.parse_errors = 0
+        
+        # Rate limiter adaptativo
+        self.rate_limiter = AdaptiveRateLimiter(
+            RateLimitConfig(
+                min_delay=config.DELAY_MS / 1000.0,
+                max_delay=2.0,
+                initial_delay=config.DELAY_MS / 1000.0,
+            )
+        )
 
     def configure_sessions(self, manager: Any) -> None:
         """Configurar sesiones HTTP con impersonación de navegador"""
@@ -83,27 +95,37 @@ class SICMSpider(Spider):
         """Procesar respuesta HTML con retry automático"""
         id_guia = response.meta.get("id_guia")
         self.stats.total_processed += 1
+        request_start = time.time()
 
         try:
             # Manejo de errores HTTP transitorios
             if response.status == 429:
                 logger.warning("rate_limited", id=id_guia)
+                self.rate_limiter.on_error(429)
                 self.stats.total_errors += 1
+                metrics.record_error("http")
+                metrics.record_request("error")
                 return
             elif response.status >= 500:
                 logger.warning("server_error", id=id_guia, status=response.status)
+                self.rate_limiter.on_error(response.status)
                 self.stats.total_errors += 1
+                metrics.record_error("http")
+                metrics.record_request("error")
                 return
             elif response.status != 200:
                 logger.warning("http_error", id=id_guia, status=response.status)
                 self.http_errors += 1
                 self.stats.total_errors += 1
+                metrics.record_error("http")
+                metrics.record_request("error")
                 return
 
             # Verificar que tenemos contenido
             if not response.text or len(response.text) < 100:
                 logger.warning("empty_response", id=id_guia, length=len(response.text) if response.text else 0)
                 self.stats.total_skipped += 1
+                metrics.record_request("skipped")
                 return
 
             # Parsear guía del HTML
@@ -112,11 +134,21 @@ class SICMSpider(Spider):
             if guia is None:
                 self.stats.total_skipped += 1
                 logger.debug("guia_skipped", id=id_guia)
+                metrics.record_request("skipped")
                 return
 
+            # Registrar éxito del request
+            self.rate_limiter.on_success(response.status)
+            
             # Agregar a batch
             self.batch.append(guia)
             self.stats.current_id = id_guia
+            
+            # Actualizar métricas
+            metrics.record_request("success")
+            metrics.set_current_id(id_guia)
+            metrics.set_batch_items(len(self.batch))
+            metrics.record_request_duration(time.time() - request_start)
 
             # Flush si alcanza tamaño de batch
             if len(self.batch) >= self.batch_size:
@@ -126,15 +158,25 @@ class SICMSpider(Spider):
             logger.error("parse_exception", id=id_guia, error=str(e))
             self.parse_errors += 1
             self.stats.total_errors += 1
+            self.rate_limiter.on_error(500)
+            metrics.record_error("parse")
+            metrics.record_request("error")
 
     async def _flush_batch(self) -> None:
         """Guardar batch a BD"""
         if not self.batch:
             return
 
+        batch_start = time.time()
+        
         try:
             inserted, skipped = await self.db.bulk_insert(self.batch)
             self.stats.total_saved += inserted
+            
+            # Registrar métricas
+            metrics.record_batch_operation("insert")
+            metrics.record_batch_operation("skip") if skipped > 0 else None
+            metrics.record_batch_duration(time.time() - batch_start)
 
             # Calcular métricas
             elapsed = time.time() - self.start_time
@@ -164,13 +206,27 @@ class SICMSpider(Spider):
                 self.stats.total_errors,
                 self.stats.total_processed,
             )
+            
+            # Actualizar health endpoint
+            update_scraper_status(
+                current_id=self.stats.current_id,
+                total_processed=self.stats.total_processed,
+                total_saved=self.stats.total_saved,
+                total_errors=self.stats.total_errors,
+                total_skipped=self.stats.total_skipped,
+                requests_per_second=self.stats.requests_per_second,
+                eta_seconds=self.stats.estimated_eta_seconds or 0,
+            )
 
             self.batch.clear()
+            metrics.set_batch_items(0)
 
         except Exception as e:
             logger.error("flush_batch_failed", error=str(e), batch_size=len(self.batch))
             self.stats.total_errors += len(self.batch)
+            metrics.record_error("db")
             self.batch.clear()
+            metrics.set_batch_items(0)
 
     async def closed(self, reason: str) -> None:
         """Limpieza al cerrar spider"""
