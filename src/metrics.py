@@ -1,10 +1,10 @@
 """
 Métricas Prometheus para monitoreo del scraper
 """
-from prometheus_client import Counter, Histogram, Gauge, Info
-import time
 import threading
+import time
 
+from prometheus_client import Counter, Gauge, Histogram, Info
 
 # Contadores
 REQUESTS_TOTAL = Counter(
@@ -60,10 +60,10 @@ SCRAPER_INFO = Info('scraper', 'SICM Scraper information')
 
 class MetricsCollector:
     """Coleccionador de métricas singleton"""
-    
+
     _instance = None
     _lock = threading.Lock()
-    
+
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
@@ -71,7 +71,7 @@ class MetricsCollector:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
@@ -81,39 +81,39 @@ class MetricsCollector:
             'version': '2.0.0',
             'framework': 'scrapling'
         })
-    
+
     @property
     def uptime_seconds(self) -> float:
         return time.time() - self.start_time
-    
+
     def record_request(self, status: str):
         """Registrar request completado"""
         REQUESTS_TOTAL.labels(status=status).inc()
-    
+
     def record_batch_operation(self, operation: str):
         """Registrar operación de batch"""
         BATCH_OPERATIONS.labels(operation=operation).inc()
-    
+
     def record_error(self, error_type: str):
         """Registrar error"""
         ERRORS_TOTAL.labels(type=error_type).inc()
-    
+
     def record_batch_duration(self, seconds: float):
         """Registrar duración de batch"""
         BATCH_DURATION.observe(seconds)
-    
+
     def record_request_duration(self, seconds: float):
         """Registrar duración de request"""
         REQUEST_DURATION.observe(seconds)
-    
+
     def set_batch_items(self, count: int):
         """Actualizar gauge de items en batch"""
         ITEMS_IN_BATCH.set(count)
-    
+
     def set_current_id(self, id_guia: int):
         """Actualizar gauge de ID actual"""
         CURRENT_ID.set(id_guia)
-    
+
     def set_rate_limit_delay(self, seconds: float):
         """Actualizar delay del rate limiter"""
         RATE_LIMIT_DELAY.set(seconds)
@@ -127,6 +127,11 @@ def get_metrics_summary() -> dict:
     """Obtener resumen de métricas"""
     return {
         "uptime_seconds": metrics.uptime_seconds,
-        "requests_total": sum(REQUESTS_TOTAL._value.values()),
-        "errors_total": sum(ERRORS_TOTAL._value.values()),
+        "requests_total": REQUESTS_TOTAL.labels(status="success")._value.get() + REQUESTS_TOTAL.labels(status="error")._value.get(),
+        "requests_success": REQUESTS_TOTAL.labels(status="success")._value.get(),
+        "requests_error": REQUESTS_TOTAL.labels(status="error")._value.get(),
+        "errors_total": ERRORS_TOTAL.labels(type="http")._value.get() + ERRORS_TOTAL.labels(type="parse")._value.get() + ERRORS_TOTAL.labels(type="db")._value.get(),
+        "errors_http": ERRORS_TOTAL.labels(type="http")._value.get(),
+        "errors_parse": ERRORS_TOTAL.labels(type="parse")._value.get(),
+        "errors_db": ERRORS_TOTAL.labels(type="db")._value.get(),
     }

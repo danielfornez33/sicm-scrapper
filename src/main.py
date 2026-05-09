@@ -3,16 +3,15 @@ Punto de entrada principal del scraper SICM
 Inicializa logging, valida configuración y arranca el spider
 """
 
-import sys
 import logging
+import sys
 from pathlib import Path
-from typing import Optional
 
-from src.logger import setup_logging, get_logger
 from src.config import config
+from src.logger import get_logger, setup_logging
 from src.spider import main as run_spider
 
-logger: Optional[logging.Logger] = None
+logger: logging.Logger | None = None
 
 
 def main() -> int:

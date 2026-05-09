@@ -3,16 +3,15 @@ Modelos Pydantic para validación de datos
 Con validaciones estrictas para detectar outliers y datos inválidos
 """
 
+
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List
-from datetime import datetime
 
 
 class Producto(BaseModel):
     """Modelo para cada producto en una guía"""
 
     nombre: str = Field(..., min_length=1, max_length=500)
-    lote: Optional[str] = Field(None, max_length=100)
+    lote: str | None = Field(None, max_length=100)
     cantidad: int = Field(..., gt=0, le=1_000_000)
 
     @field_validator("nombre")
@@ -38,22 +37,22 @@ class Guia(BaseModel):
 
     id_guia: int = Field(..., gt=0)
     estatus: str = Field(..., pattern="^(APROBADA|Abierta|RECIBIDA)$")
-    fecha_emision: Optional[str] = None
-    fecha_vencimiento: Optional[str] = None
-    bultos: Optional[int] = Field(None, ge=0, le=100_000)
-    renglones: Optional[int] = Field(None, ge=0, le=100_000)
+    fecha_emision: str | None = None
+    fecha_vencimiento: str | None = None
+    bultos: int | None = Field(None, ge=0, le=100_000)
+    renglones: int | None = Field(None, ge=0, le=100_000)
     unidades: int = Field(..., ge=0, le=1_000_000)
-    origen_razon: Optional[str] = Field(None, max_length=500)
-    origen_rif: Optional[str] = Field(None, max_length=50)
-    origen_tipo: Optional[str] = Field(None, max_length=100)
-    origen_direccion: Optional[str] = Field(None, max_length=500)
-    origen_estado_ciudad: Optional[str] = Field(None, max_length=100)
-    destino_razon: Optional[str] = Field(None, max_length=500)
-    destino_rif: Optional[str] = Field(None, max_length=50)
-    destino_tipo: Optional[str] = Field(None, max_length=100)
-    destino_direccion: Optional[str] = Field(None, max_length=500)
-    destino_estado_ciudad: Optional[str] = Field(None, max_length=100)
-    productos: List[Producto] = Field(default_factory=list)
+    origen_razon: str | None = Field(None, max_length=500)
+    origen_rif: str | None = Field(None, max_length=50)
+    origen_tipo: str | None = Field(None, max_length=100)
+    origen_direccion: str | None = Field(None, max_length=500)
+    origen_estado_ciudad: str | None = Field(None, max_length=100)
+    destino_razon: str | None = Field(None, max_length=500)
+    destino_rif: str | None = Field(None, max_length=50)
+    destino_tipo: str | None = Field(None, max_length=100)
+    destino_direccion: str | None = Field(None, max_length=500)
+    destino_estado_ciudad: str | None = Field(None, max_length=100)
+    productos: list[Producto] = Field(default_factory=list)
 
     @field_validator("unidades")
     @classmethod
@@ -65,7 +64,7 @@ class Guia(BaseModel):
 
     @field_validator("productos")
     @classmethod
-    def validate_productos(cls, v: List[Producto]) -> List[Producto]:
+    def validate_productos(cls, v: list[Producto]) -> list[Producto]:
         """Validación cruzada: al menos 1 producto si unidades > 0"""
         # Permitir guías sin productos (algunos datos pueden estar vacíos en SICM)
         return v
@@ -93,7 +92,7 @@ class ScrapingStats(BaseModel):
     current_id: int = 0
     elapsed_seconds: float = 0.0
     requests_per_second: float = 0.0
-    estimated_eta_seconds: Optional[int] = None
+    estimated_eta_seconds: int | None = None
 
     @property
     def success_rate(self) -> float:

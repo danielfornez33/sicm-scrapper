@@ -9,10 +9,23 @@ from src.models import Guia, Producto
 @pytest.fixture
 def mock_pool():
     """Mock de la pool de conexiones"""
-    pool = AsyncMock()
-    conn = AsyncMock()
-    pool.acquire.return_value.__aenter__ = AsyncMock(return_value=conn)
-    pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+    pool = MagicMock()
+    conn = MagicMock()
+    conn.execute = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[])
+    conn.fetchrow = AsyncMock(return_value=None)
+    conn.fetchval = AsyncMock(return_value=0)
+    
+    class AsyncConnContextManager:
+        """Wrapper para que funcione con async with"""
+        def __init__(self, conn):
+            self._conn = conn
+        async def __aenter__(self):
+            return self._conn
+        async def __aexit__(self, *args):
+            return None
+    
+    pool.acquire = lambda: AsyncConnContextManager(conn)
     pool.close = AsyncMock()
     return pool
 
@@ -67,7 +80,9 @@ class TestDatabaseConnection:
     @patch('src.db.asyncpg.create_pool')
     async def test_connect_success(self, mock_create_pool, mock_pool):
         """Test conexión exitosa"""
-        mock_create_pool.return_value = mock_pool
+        async def mock_pool_return(**kwargs):
+            return mock_pool
+        mock_create_pool.side_effect = mock_pool_return
         
         db = Database()
         await db.connect()
@@ -80,7 +95,9 @@ class TestDatabaseConnection:
     @patch('src.db.asyncpg.create_pool')
     async def test_connect_creates_tables(self, mock_create_pool, mock_pool):
         """Test que connect() crea las tablas"""
-        mock_create_pool.return_value = mock_pool
+        async def mock_pool_return(**kwargs):
+            return mock_pool
+        mock_create_pool.side_effect = mock_pool_return
         
         db = Database()
         await db.connect()
@@ -110,20 +127,23 @@ class TestBulkInsert:
         db = Database()
         db.pool = mock_pool
         
-        # Mock transaction
-        mock_conn = await mock_pool.acquire().__aenter__()
-        mock_tx = AsyncMock()
-        mock_conn.transaction.return_value.__aenter__ = AsyncMock(return_value=mock_tx)
-        mock_conn.transaction.return_value.__aexit__ = AsyncMock(return_value=None)
-        
-        # Mock execute para INSERT
-        mock_conn.execute = AsyncMock(return_value="INSERT 0 1")
-        mock_conn.executemany = AsyncMock()
-        
-        inserted, skipped = await db.bulk_insert([sample_guia])
-        
-        # Should have attempted insert
-        assert mock_conn.execute.called or mock_conn.executemany.called
+        async with mock_pool.acquire() as mock_conn:
+            # Mock transaction as async context manager
+            class AsyncTxContext:
+                async def __aenter__(self):
+                    return MagicMock()
+                async def __aexit__(self, *args):
+                    return None
+            mock_conn.transaction = lambda: AsyncTxContext()
+            
+            # Mock execute para INSERT
+            mock_conn.execute = AsyncMock(return_value="INSERT 0 1")
+            mock_conn.executemany = AsyncMock()
+            
+            inserted, skipped = await db.bulk_insert([sample_guia])
+            
+            # Should have attempted insert
+            assert mock_conn.execute.called or mock_conn.executemany.called
 
 
 class TestProgress:
@@ -135,12 +155,12 @@ class TestProgress:
         db = Database()
         db.pool = mock_pool
         
-        mock_conn = await mock_pool.acquire().__aenter__()
-        mock_conn.execute = AsyncMock()
-        
-        await db.update_progress(42022341, 100, 5, 150)
-        
-        assert mock_conn.execute.called
+        async with mock_pool.acquire() as mock_conn:
+            mock_conn.execute = AsyncMock()
+            
+            await db.update_progress(42022341, 100, 5, 150)
+            
+            assert mock_conn.execute.called
 
     @pytest.mark.asyncio
     async def test_get_progress_empty(self, mock_pool):
@@ -148,12 +168,12 @@ class TestProgress:
         db = Database()
         db.pool = mock_pool
         
-        mock_conn = await mock_pool.acquire().__aenter__()
-        mock_conn.fetchrow = AsyncMock(return_value=None)
-        
-        progress = await db.get_progress()
-        
-        assert progress is None
+        async with mock_pool.acquire() as mock_conn:
+            mock_conn.fetchrow = AsyncMock(return_value=None)
+            
+            progress = await db.get_progress()
+            
+            assert progress is None
 
     @pytest.mark.asyncio
     async def test_get_progress_with_data(self, mock_pool):
@@ -161,20 +181,20 @@ class TestProgress:
         db = Database()
         db.pool = mock_pool
         
-        mock_conn = await mock_pool.acquire().__aenter__()
-        mock_conn.fetchrow = AsyncMock(return_value={
-            'id': 1,
-            'last_id_processed': 42022341,
-            'total_saved': 100,
-            'total_errors': 5,
-            'total_scraped': 150,
-            'last_updated': '2026-01-15 10:00:00'
-        })
-        
-        progress = await db.get_progress()
-        
-        assert progress is not None
-        assert progress['last_id_processed'] == 42022341
+        async with mock_pool.acquire() as mock_conn:
+            mock_conn.fetchrow = AsyncMock(return_value={
+                'id': 1,
+                'last_id_processed': 42022341,
+                'total_saved': 100,
+                'total_errors': 5,
+                'total_scraped': 150,
+                'last_updated': '2026-01-15 10:00:00'
+            })
+            
+            progress = await db.get_progress()
+            
+            assert progress is not None
+            assert progress['last_id_processed'] == 42022341
 
 
 class TestStats:
@@ -186,15 +206,15 @@ class TestStats:
         db = Database()
         db.pool = mock_pool
         
-        mock_conn = await mock_pool.acquire().__aenter__()
-        mock_conn.fetchval = AsyncMock(side_effect=[1000, 5000, 100000, 50])
-        
-        stats = await db.get_stats()
-        
-        assert stats['total_guias'] == 1000
-        assert stats['total_productos'] == 5000
-        assert stats['total_unidades'] == 100000
-        assert stats['unique_destinos'] == 50
+        async with mock_pool.acquire() as mock_conn:
+            mock_conn.fetchval = AsyncMock(side_effect=[1000, 5000, 100000, 50])
+            
+            stats = await db.get_stats()
+            
+            assert stats['total_guias'] == 1000
+            assert stats['total_productos'] == 5000
+            assert stats['total_unidades'] == 100000
+            assert stats['unique_destinos'] == 50
 
 
 class TestClose:

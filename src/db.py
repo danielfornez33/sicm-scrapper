@@ -3,21 +3,21 @@ Capa de base de datos con asyncpg
 Optimizado para VPS con pool management y bulk operations
 """
 
-import asyncpg
-from typing import List, Optional, Tuple
-from datetime import datetime
-import logging
-from src.models import Guia, Producto
-from src.config import config
 
-logger = logging.getLogger(__name__)
+import asyncpg
+
+from src.config import config
+from src.logger import get_logger
+from src.models import Guia
+
+logger = get_logger(__name__)
 
 
 class Database:
     """Manejo de conexiones y operaciones a PostgreSQL"""
 
     def __init__(self) -> None:
-        self.pool: Optional[asyncpg.Pool] = None
+        self.pool: asyncpg.Pool | None = None
 
     async def connect(self) -> None:
         """Establecer conexión al pool de PostgreSQL"""
@@ -83,19 +83,19 @@ class Database:
             # Índices para optimización de queries
             await conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_guias_estatus 
+                CREATE INDEX IF NOT EXISTS idx_guias_estatus
                 ON guias(estatus)
                 """
             )
             await conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_guias_fecha_emision 
+                CREATE INDEX IF NOT EXISTS idx_guias_fecha_emision
                 ON guias(fecha_emision)
                 """
             )
             await conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_guias_destino_razon 
+                CREATE INDEX IF NOT EXISTS idx_guias_destino_razon
                 ON guias(destino_razon)
                 """
             )
@@ -117,13 +117,13 @@ class Database:
             # Índices para productos
             await conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_guia_productos_id_guia 
+                CREATE INDEX IF NOT EXISTS idx_guia_productos_id_guia
                 ON guia_productos(id_guia)
                 """
             )
             await conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_guia_productos_producto 
+                CREATE INDEX IF NOT EXISTS idx_guia_productos_producto
                 ON guia_productos(producto)
                 """
             )
@@ -144,7 +144,7 @@ class Database:
 
             logger.info("db_tables_created")
 
-    async def bulk_insert(self, guias: List[Guia]) -> Tuple[int, int]:
+    async def bulk_insert(self, guias: list[Guia]) -> tuple[int, int]:
         """
         Insertar lote de guías en una transacción
         Retorna: (total_inserted, total_skipped)
@@ -263,7 +263,7 @@ class Database:
                 total,
             )
 
-    async def get_progress(self) -> Optional[dict]:
+    async def get_progress(self) -> dict | None:
         """Obtener último progreso guardado"""
         if not self.pool:
             return None

@@ -5,7 +5,7 @@ Soporta variables de entorno con valores por defecto seguros
 
 import os
 from pathlib import Path
-from typing import Optional
+
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -55,11 +55,11 @@ class Config:
     USE_PROXIES: bool = os.getenv("USE_PROXIES", "false").lower() == "true"
     PROXY_LIST: str = os.getenv("PROXY_LIST", "")
     CHECKPOINT_DIR: Path = Path(os.getenv("CHECKPOINT_DIR", "./checkpoints"))
-    
+
     # ==================== WORKERS (Multi-Worker) ====================
     WORKER_ID: int = int(os.getenv("WORKER_ID", 0))  # ID del worker (0 = single mode)
     NUM_WORKERS: int = int(os.getenv("NUM_WORKERS", 0))  # 0 = auto-detectar
-    
+
     # ==================== ANTI-BLOCK ====================
     ENABLE_UA_ROTATION: bool = os.getenv("ENABLE_UA_ROTATION", "true").lower() == "true"
     ENABLE_FINGERPRINT_RANDOMIZATION: bool = os.getenv("ENABLE_FINGERPRINT_RANDOMIZATION", "true").lower() == "true"

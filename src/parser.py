@@ -2,16 +2,16 @@
 Parser HTML optimizado para SICM usando Scrapling Selector
 10x más rápido que regex puro
 """
-from typing import Optional, List
-import logging
+
 from scrapling.parser import Selector
 
+from src.logger import get_logger
 from src.models import Guia, Producto
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
-def parse_guia_page(html: str, id_guia: int) -> Optional[Guia]:
+def parse_guia_page(html: str, id_guia: int) -> Guia | None:
     """
     Parser principal que extrae datos de una guía del SICM
     Usa Scrapling Selector para mejor rendimiento
@@ -91,7 +91,7 @@ def parse_guia_page(html: str, id_guia: int) -> Optional[Guia]:
         return None
 
 
-def _extract_xpath(selector: Selector, field_name: str) -> Optional[str]:
+def _extract_xpath(selector: Selector, field_name: str) -> str | None:
     """Extrae campo usando XPath de Scrapling"""
     try:
         result = selector.xpath(
@@ -107,7 +107,7 @@ def _extract_xpath(selector: Selector, field_name: str) -> Optional[str]:
         return None
 
 
-def _extract_int(selector: Selector, field_name: str) -> Optional[int]:
+def _extract_int(selector: Selector, field_name: str) -> int | None:
     """Extrae campo como entero"""
     value = _extract_xpath(selector, field_name)
     if value:
@@ -118,11 +118,11 @@ def _extract_int(selector: Selector, field_name: str) -> Optional[int]:
     return None
 
 
-def _parse_productos(selector: Selector) -> List[Producto]:
+def _parse_productos(selector: Selector) -> list[Producto]:
     """
     Extrae la tabla de productos usando XPath de Scrapling
     """
-    productos: List[Producto] = []
+    productos: list[Producto] = []
 
     try:
         # Buscar tabla de productos
@@ -182,7 +182,7 @@ def _parse_productos(selector: Selector) -> List[Producto]:
     return productos
 
 
-def _clean_text(text: Optional[str]) -> Optional[str]:
+def _clean_text(text: str | None) -> str | None:
     """Limpia texto extraído"""
     if not text:
         return None

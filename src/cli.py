@@ -6,12 +6,11 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
-from typing import Optional
 
 from src.config import config
-from src.logger import setup_logging, get_logger
-from src.spider import SICMSpider
 from src.db import Database
+from src.logger import setup_logging
+from src.spider import SICMSpider
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -117,9 +116,9 @@ def print_status():
     # Verificar si hay checkpoint
     checkpoint_file = config.CHECKPOINT_DIR / "progress.pkl"
     if checkpoint_file.exists():
-        print(f"   ✓ Checkpoint existe")
+        print("   ✓ Checkpoint existe")
     else:
-        print(f"   ✗ Sin checkpoint")
+        print("   ✗ Sin checkpoint")
 
     print(f"   DB: {config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}")
 
@@ -153,7 +152,6 @@ async def print_stats():
 
 async def clear_checkpoint():
     """Limpiar checkpoint"""
-    import shutil
     checkpoint_file = config.CHECKPOINT_DIR / "progress.pkl"
     if checkpoint_file.exists():
         checkpoint_file.unlink()

@@ -2,25 +2,22 @@
 Health Check y API de Monitoreo
 Provee endpoints HTTP para verificar estado del scraper
 """
-import asyncio
-import time
 import logging
-from typing import Optional
-from dataclasses import dataclass
+import time
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
 from src.config import config
-from src.metrics import metrics, get_metrics_summary
+from src.metrics import get_metrics_summary, metrics
 
 logger = logging.getLogger(__name__)
 
 # Estado global del scraper
 _scraper_status = {
     "running": False,
-    "start_time": Optional[float] = None,
+    "start_time": None,
     "total_processed": 0,
     "total_saved": 0,
     "total_errors": 0,
@@ -109,7 +106,7 @@ async def readiness():
 async def get_status():
     """Estado completo del scraper"""
     elapsed = time.time() - _scraper_status["start_time"] if _scraper_status["start_time"] else 0
-    
+
     return {
         "running": _scraper_status["running"],
         "uptime_seconds": elapsed,
@@ -142,7 +139,7 @@ async def get_status():
 async def get_metrics():
     """Métricas Prometheus"""
     summary = get_metrics_summary()
-    
+
     return {
         **summary,
         "metrics": {
@@ -161,7 +158,7 @@ async def get_progress():
         "start_id": config.START_ID,
         "end_id": config.END_ID,
         "progress_percent": (
-            (_scraper_status["current_id"] - config.START_ID) / 
+            (_scraper_status["current_id"] - config.START_ID) /
             (config.END_ID - config.START_ID) * 100
             if config.END_ID > config.START_ID else 0
         ),
@@ -205,10 +202,10 @@ def _format_eta(seconds: int) -> str:
     """Formatear ETA a string legible"""
     if seconds <= 0:
         return "---"
-    
+
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
-    
+
     if hours > 0:
         return f"{hours}h {minutes}m"
     return f"{minutes}m"

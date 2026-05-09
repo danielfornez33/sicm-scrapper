@@ -4,11 +4,11 @@ Ajusta la velocidad automáticamente basándose en respuestas del servidor
 """
 import asyncio
 import time
-import logging
-from typing import Optional
 from dataclasses import dataclass
 
-logger = logging.getLogger(__name__)
+from src.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -26,27 +26,27 @@ class RateLimitConfig:
 class AdaptiveRateLimiter:
     """
     Rate limiter adaptativo que ajusta la velocidad automáticamente
-    
+
     Comportamiento:
     - Reduce delay si hay muchos éxitos consecutivos
     - Aumenta delay si hay errores o rate limiting
     - Mantiene un balance entre velocidad y estabilidad
     """
 
-    def __init__(self, config: Optional[RateLimitConfig] = None):
+    def __init__(self, config: RateLimitConfig | None = None):
         self.config = config or RateLimitConfig()
         self.current_delay = self.config.initial_delay
-        
+
         # Contadores
         self.success_count = 0
         self.error_count = 0
         self.total_requests = 0
         self.total_delays = 0
-        
+
         # Estado
         self.last_request_time = 0.0
         self.is_rate_limited = False
-        self.rate_limit_until: Optional[float] = None
+        self.rate_limit_until: float | None = None
 
     async def wait_if_needed(self) -> None:
         """Esperar el tiempo apropiado antes de hacer request"""
@@ -60,11 +60,11 @@ class AdaptiveRateLimiter:
         # Calcular tiempo desde último request
         now = time.time()
         elapsed = now - self.last_request_time
-        
+
         if elapsed < self.current_delay:
             wait_time = self.current_delay - elapsed
             await asyncio.sleep(wait_time)
-        
+
         self.last_request_time = time.time()
 
     def on_success(self, status_code: int = 200) -> None:
@@ -72,7 +72,7 @@ class AdaptiveRateLimiter:
         self.total_requests += 1
         self.success_count += 1
         self.error_count = 0  # Reset errores
-        
+
         # Reducir delay si hay muchos éxitos consecutivos
         if self.success_count >= self.config.success_threshold:
             if self.current_delay > self.config.min_delay:
@@ -95,7 +95,7 @@ class AdaptiveRateLimiter:
         self.total_requests += 1
         self.error_count += 1
         self.success_count = 0  # Reset éxitos
-        
+
         # Aumentar delay si hay muchos errores consecutivos
         if status_code == 429:  # Too Many Requests
             self._handle_rate_limit()
@@ -113,17 +113,17 @@ class AdaptiveRateLimiter:
             self.config.max_delay,
             self.current_delay * 2
         )
-        
+
         # Establecer cooldown
         self.rate_limit_until = time.time() + self.current_delay
-        
+
         logger.warning(
             "rate_limit_detected",
             old_delay=old_delay,
             new_delay=self.current_delay,
             cooldown_seconds=self.current_delay
         )
-        
+
         self.error_count = 0
 
     def _handle_server_error(self) -> None:
@@ -131,7 +131,7 @@ class AdaptiveRateLimiter:
         if self.current_delay < 1.0:  # Max 1s para server errors
             old_delay = self.current_delay
             self.current_delay = min(1.0, self.current_delay * 1.5)
-            
+
             logger.warning(
                 "server_error_increasing_delay",
                 old_delay=old_delay,
@@ -147,14 +147,14 @@ class AdaptiveRateLimiter:
                 self.config.max_delay,
                 self.current_delay * self.config.increase_factor
             )
-            
+
             logger.warning(
                 "many_errors_increasing_delay",
                 old_delay=old_delay,
                 new_delay=self.current_delay,
                 consecutive_errors=self.error_count
             )
-        
+
         self.error_count = 0
 
     @property

@@ -5,26 +5,23 @@ Soporta pause/resume, rate limiting, anti-bloqueo y monitoreo en tiempo real
 
 import asyncio
 import logging
-import random
 import os
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
 import time
 from pathlib import Path
+from typing import Any
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from scrapling.spiders import Spider, Request, Response
-from scrapling.fetchers import FetcherSession, AsyncFetcherSession
+from scrapling.fetchers import FetcherSession
+from scrapling.spiders import Request, Response, Spider
 
+from src.anti_block import AntiBlockDetector
 from src.config import config
+from src.db import Database
+from src.fingerprint import FingerprintManager
+from src.health import update_scraper_status
+from src.metrics import metrics
 from src.models import Guia, ScrapingStats
 from src.parser import parse_guia_page
-from src.db import Database
 from src.rate_limiter import AdaptiveRateLimiter, RateLimitConfig
-from src.metrics import metrics
-from src.health import update_scraper_status
-from src.fingerprint import FingerprintManager
-from src.anti_block import AntiBlockDetector
 
 logger = logging.getLogger(__name__)
 
@@ -47,19 +44,19 @@ class SICMSpider(Spider):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        
+
         # Obtener ID de worker (del entorno o auto-generar)
         self.worker_id = int(os.environ.get("WORKER_ID", 0))
-        
+
         self.db = Database()
-        self.batch: List[Guia] = []
+        self.batch: list[Guia] = []
         self.batch_size = config.BATCH_SIZE
         self.stats = ScrapingStats()
         self.start_time = time.time()
         self.checkpoint_path = Path(config.CHECKPOINT_DIR) / f"progress_{self.worker_id}.pkl"
         self.http_errors = 0
         self.parse_errors = 0
-        
+
         # Rate limiter adaptativo
         self.rate_limiter = AdaptiveRateLimiter(
             RateLimitConfig(
@@ -68,10 +65,10 @@ class SICMSpider(Spider):
                 initial_delay=config.DELAY_MS / 1000.0,
             )
         )
-        
+
         # Fingerprint manager (rotación de User Agents)
         self.fingerprint = FingerprintManager(worker_id=self.worker_id)
-        
+
         # Anti-block detector
         self.anti_block = AntiBlockDetector(worker_id=self.worker_id)
 
@@ -80,7 +77,7 @@ class SICMSpider(Spider):
         try:
             # Obtener headers aleatorios del fingerprint manager
             headers = self.fingerprint.get_headers()
-            
+
             # Sesión principal con impersonación y headers rotados
             session = FetcherSession(
                 impersonate=config.IMPERSONATE_BROWSER,
@@ -115,15 +112,15 @@ class SICMSpider(Spider):
 
     async def parse(self, response: Response) -> None:
         """Procesar respuesta HTML con retry automático y anti-bloqueo"""
-        
+
         # Verificar si debemos continuar (cooldown)
         if not self.anti_block.should_continue():
             return
-        
+
         id_guia = response.meta.get("id_guia")
         self.stats.total_processed += 1
         request_start = time.time()
-        
+
         # Random delay between requests to avoid patterns
         delay_ms = self.fingerprint.get_random_delay_ms(
             config.DELAY_MIN_MS, config.DELAY_MAX_MS
@@ -131,14 +128,14 @@ class SICMSpider(Spider):
         # Apply anti-block speed multiplier
         effective_delay = self.anti_block.get_effective_delay(delay_ms)
         await asyncio.sleep(effective_delay / 1000.0)
-        
+
         try:
             # Detectar bloqueos usando anti-block
-            block_type = self.anti_block.record_response(
+            self.anti_block.record_response(
                 status_code=response.status,
                 content=response.text if response.text else None,
             )
-            
+
             # Manejo de errores HTTP transitorios
             if response.status == 429:
                 logger.warning("rate_limited", id=id_guia)
@@ -182,11 +179,11 @@ class SICMSpider(Spider):
 
             # Registrar éxito del request
             self.rate_limiter.on_success(response.status)
-            
+
             # Agregar a batch
             self.batch.append(guia)
             self.stats.current_id = id_guia
-            
+
             # Actualizar métricas
             metrics.record_request("success")
             metrics.set_current_id(id_guia)
@@ -211,11 +208,11 @@ class SICMSpider(Spider):
             return
 
         batch_start = time.time()
-        
+
         try:
             inserted, skipped = await self.db.bulk_insert(self.batch)
             self.stats.total_saved += inserted
-            
+
             # Registrar métricas
             metrics.record_batch_operation("insert")
             metrics.record_batch_operation("skip") if skipped > 0 else None
@@ -249,7 +246,7 @@ class SICMSpider(Spider):
                 self.stats.total_errors,
                 self.stats.total_processed,
             )
-            
+
             # Actualizar health endpoint
             update_scraper_status(
                 current_id=self.stats.current_id,
@@ -365,4 +362,4 @@ def main() -> None:
         logger.info("scraper_shutdown")
     except Exception as e:
         logger.error("fatal_error", error=str(e))
-        raise SystemExit(1)
+        raise SystemExit(1) from None

@@ -6,7 +6,9 @@ Produce logs JSON en producción para mejor análisis
 import logging
 import sys
 from pathlib import Path
+
 import structlog
+
 from src.config import config
 
 LOG_DIR = Path("./logs")
