@@ -1,10 +1,12 @@
 """
 Spider principal basado en Scrapling
-Soporta pause/resume, rate limiting y monitoreo en tiempo real
+Soporta pause/resume, rate limiting, anti-bloqueo y monitoreo en tiempo real
 """
 
 import asyncio
 import logging
+import random
+import os
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import time
@@ -21,6 +23,8 @@ from src.db import Database
 from src.rate_limiter import AdaptiveRateLimiter, RateLimitConfig
 from src.metrics import metrics
 from src.health import update_scraper_status
+from src.fingerprint import FingerprintManager
+from src.anti_block import AntiBlockDetector
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +47,16 @@ class SICMSpider(Spider):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        
+        # Obtener ID de worker (del entorno o auto-generar)
+        self.worker_id = int(os.environ.get("WORKER_ID", 0))
+        
         self.db = Database()
         self.batch: List[Guia] = []
         self.batch_size = config.BATCH_SIZE
         self.stats = ScrapingStats()
         self.start_time = time.time()
-        self.checkpoint_path = Path(config.CHECKPOINT_DIR) / "progress.pkl"
+        self.checkpoint_path = Path(config.CHECKPOINT_DIR) / f"progress_{self.worker_id}.pkl"
         self.http_errors = 0
         self.parse_errors = 0
         
@@ -60,18 +68,32 @@ class SICMSpider(Spider):
                 initial_delay=config.DELAY_MS / 1000.0,
             )
         )
+        
+        # Fingerprint manager (rotación de User Agents)
+        self.fingerprint = FingerprintManager(worker_id=self.worker_id)
+        
+        # Anti-block detector
+        self.anti_block = AntiBlockDetector(worker_id=self.worker_id)
 
     def configure_sessions(self, manager: Any) -> None:
-        """Configurar sesiones HTTP con impersonación de navegador"""
+        """Configurar sesiones HTTP con impersonación y headers aleatorios"""
         try:
-            # Sesión principal con impersonación
+            # Obtener headers aleatorios del fingerprint manager
+            headers = self.fingerprint.get_headers()
+            
+            # Sesión principal con impersonación y headers rotados
             session = FetcherSession(
                 impersonate=config.IMPERSONATE_BROWSER,
                 timeout=config.REQUEST_TIMEOUT,
                 stealthy_headers=True,
+                extra_headers=headers,  # Añadir headers rotados
             )
             manager.add("default", session)
-            logger.info("session_configured", impersonate=config.IMPERSONATE_BROWSER)
+            logger.info(
+                f"session_configured_worker_{self.worker_id}",
+                impersonate=config.IMPERSONATE_BROWSER,
+                user_agent=headers.get("User-Agent", "unknown")[:50],
+            )
         except Exception as e:
             logger.error("session_config_failed", error=str(e))
             raise
@@ -92,12 +114,31 @@ class SICMSpider(Spider):
             yield Request(url, meta={"id_guia": id_guia})
 
     async def parse(self, response: Response) -> None:
-        """Procesar respuesta HTML con retry automático"""
+        """Procesar respuesta HTML con retry automático y anti-bloqueo"""
+        
+        # Verificar si debemos continuar (cooldown)
+        if not self.anti_block.should_continue():
+            return
+        
         id_guia = response.meta.get("id_guia")
         self.stats.total_processed += 1
         request_start = time.time()
-
+        
+        # Random delay between requests to avoid patterns
+        delay_ms = self.fingerprint.get_random_delay_ms(
+            config.DELAY_MIN_MS, config.DELAY_MAX_MS
+        )
+        # Apply anti-block speed multiplier
+        effective_delay = self.anti_block.get_effective_delay(delay_ms)
+        await asyncio.sleep(effective_delay / 1000.0)
+        
         try:
+            # Detectar bloqueos usando anti-block
+            block_type = self.anti_block.record_response(
+                status_code=response.status,
+                content=response.text if response.text else None,
+            )
+            
             # Manejo de errores HTTP transitorios
             if response.status == 429:
                 logger.warning("rate_limited", id=id_guia)
@@ -105,6 +146,8 @@ class SICMSpider(Spider):
                 self.stats.total_errors += 1
                 metrics.record_error("http")
                 metrics.record_request("error")
+                # Esperar cooldown si está en cooldown
+                await self.anti_block.wait_if_needed()
                 return
             elif response.status >= 500:
                 logger.warning("server_error", id=id_guia, status=response.status)

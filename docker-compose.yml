@@ -8,12 +8,11 @@ services:
     environment:
       POSTGRES_DB: farmapatria
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: changeme  # ⚠️ CAMBIAR EN PRODUCCIÓN
+      POSTGRES_PASSWORD: changeme
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./sql:/docker-entrypoint-initdb.d  # Scripts SQL iniciales (opcional)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -22,28 +21,38 @@ services:
     networks:
       - sicm_network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
 
-  # ==================== Scraper ====================
-  scraper:
+  # ==================== Workers del Scraper ====================
+  # Worker 1: IDs 42022341 - 42150000
+  scraper-1:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: sicm_scraper
+    container_name: sicm_scraper_1
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: farmapatria
-      DB_USER: postgres
-      DB_PASS: changeme
-      START_ID: 42022341
-      END_ID: 42591276
-      CONCURRENCY: 20
-      BATCH_SIZE: 1000
-      REQUEST_TIMEOUT: 60
-      LOG_LEVEL: INFO
-      METRICS_PORT: 9090
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=farmapatria
+      - DB_USER=postgres
+      - DB_PASS=changeme
+      - START_ID=42022341
+      - END_ID=42150000
+      - WORKER_ID=1
+      - CONCURRENCY=40
+      - BATCH_SIZE=2000
+      - REQUEST_TIMEOUT=60
+      - LOG_LEVEL=INFO
+      - METRICS_PORT=9091
+      - DELAY_MIN_MS=100
+      - DELAY_MAX_MS=400
+      - ENABLE_UA_ROTATION=true
     ports:
-      - "9090:9090"  # Prometheus metrics
+      - "9091:9090"
     volumes:
       - ./logs:/app/logs
       - ./checkpoints:/app/checkpoints
@@ -53,22 +62,141 @@ services:
     networks:
       - sicm_network
     restart: unless-stopped
-    # Limitar recursos en producción
     deploy:
       resources:
         limits:
-          cpus: "4"
-          memory: 4G
+          cpus: '1'
+          memory: 1G
         reservations:
-          cpus: "2"
-          memory: 2G
+          cpus: '0.5'
+          memory: 512M
 
-  # ==================== Prometheus (Opcional - Monitoreo) ====================
+  # Worker 2: IDs 42150001 - 42200000
+  scraper-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sicm_scraper_2
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=farmapatria
+      - DB_USER=postgres
+      - DB_PASS=changeme
+      - START_ID=42150001
+      - END_ID=42200000
+      - WORKER_ID=2
+      - CONCURRENCY=40
+      - BATCH_SIZE=2000
+      - REQUEST_TIMEOUT=60
+      - LOG_LEVEL=INFO
+      - METRICS_PORT=9092
+      - DELAY_MIN_MS=150
+      - DELAY_MAX_MS=450
+      - ENABLE_UA_ROTATION=true
+    ports:
+      - "9092:9090"
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sicm_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # Worker 3: IDs 42200001 - 42250000
+  scraper-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sicm_scraper_3
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=farmapatria
+      - DB_USER=postgres
+      - DB_PASS=changeme
+      - START_ID=42200001
+      - END_ID=42250000
+      - WORKER_ID=3
+      - CONCURRENCY=40
+      - BATCH_SIZE=2000
+      - REQUEST_TIMEOUT=60
+      - LOG_LEVEL=INFO
+      - METRICS_PORT=9093
+      - DELAY_MIN_MS=120
+      - DELAY_MAX_MS=380
+      - ENABLE_UA_ROTATION=true
+    ports:
+      - "9093:9090"
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sicm_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # Worker 4: IDs 42250001 - 42300000
+  scraper-4:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sicm_scraper_4
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=farmapatria
+      - DB_USER=postgres
+      - DB_PASS=changeme
+      - START_ID=42250001
+      - END_ID=42300000
+      - WORKER_ID=4
+      - CONCURRENCY=40
+      - BATCH_SIZE=2000
+      - REQUEST_TIMEOUT=60
+      - LOG_LEVEL=INFO
+      - METRICS_PORT=9094
+      - DELAY_MIN_MS=100
+      - DELAY_MAX_MS=500
+      - ENABLE_UA_ROTATION=true
+    ports:
+      - "9094:9090"
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sicm_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # Prometheus (Opcional)
   prometheus:
     image: prom/prometheus:latest
     container_name: sicm_prometheus
     ports:
-      - "9091:9090"
+      - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -81,26 +209,9 @@ services:
     profiles:
       - monitoring
 
-  # ==================== Grafana (Opcional - Visualización) ====================
-  grafana:
-    image: grafana/grafana:latest
-    container_name: sicm_grafana
-    ports:
-      - "3000:3000"
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
-    volumes:
-      - grafana_data:/var/lib/grafana
-    networks:
-      - sicm_network
-    restart: unless-stopped
-    profiles:
-      - monitoring
-
 volumes:
   postgres_data:
   prometheus_data:
-  grafana_data:
 
 networks:
   sicm_network:

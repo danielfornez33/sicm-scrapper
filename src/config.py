@@ -55,6 +55,18 @@ class Config:
     USE_PROXIES: bool = os.getenv("USE_PROXIES", "false").lower() == "true"
     PROXY_LIST: str = os.getenv("PROXY_LIST", "")
     CHECKPOINT_DIR: Path = Path(os.getenv("CHECKPOINT_DIR", "./checkpoints"))
+    
+    # ==================== WORKERS (Multi-Worker) ====================
+    WORKER_ID: int = int(os.getenv("WORKER_ID", 0))  # ID del worker (0 = single mode)
+    NUM_WORKERS: int = int(os.getenv("NUM_WORKERS", 0))  # 0 = auto-detectar
+    
+    # ==================== ANTI-BLOCK ====================
+    ENABLE_UA_ROTATION: bool = os.getenv("ENABLE_UA_ROTATION", "true").lower() == "true"
+    ENABLE_FINGERPRINT_RANDOMIZATION: bool = os.getenv("ENABLE_FINGERPRINT_RANDOMIZATION", "true").lower() == "true"
+    DELAY_MIN_MS: int = int(os.getenv("DELAY_MIN_MS", 100))  # Delay mínimo entre requests
+    DELAY_MAX_MS: int = int(os.getenv("DELAY_MAX_MS", 500))  # Delay máximo entre requests
+    BLOCK_DETECTION: bool = os.getenv("BLOCK_DETECTION", "true").lower() == "true"
+    COOLDOWN_SECONDS: int = int(os.getenv("COOLDOWN_SECONDS", 60))  # Cooldown después de bloqueo
 
     @property
     def db_url(self) -> str:
