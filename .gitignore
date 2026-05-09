@@ -1,0 +1,55 @@
+# Environment variables (CRÍTICO - contiene contraseñas!)
+.env
+
+# Logs
+logs/
+*.log
+
+# Checkpoints (archivos binarios de progreso)
+checkpoints/
+*.pkl
+*.pickle
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.eggs/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# Docker
+.docker/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Ruff cache (ya que vi .ruff_cache/)
+.ruff_cache/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# PostgreSQL data (si se mounta localmente)
+data/
+postgres_data/
+prometheus_data/
+grafana_data/

@@ -1,0 +1,107 @@
+version: "3.9"
+
+services:
+  # ==================== PostgreSQL ====================
+  postgres:
+    image: postgres:16-alpine
+    container_name: sicm_postgres
+    environment:
+      POSTGRES_DB: farmapatria
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: changeme  # ⚠️ CAMBIAR EN PRODUCCIÓN
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d  # Scripts SQL iniciales (opcional)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sicm_network
+    restart: unless-stopped
+
+  # ==================== Scraper ====================
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sicm_scraper
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: farmapatria
+      DB_USER: postgres
+      DB_PASS: changeme
+      START_ID: 42022341
+      END_ID: 42591276
+      CONCURRENCY: 20
+      BATCH_SIZE: 1000
+      REQUEST_TIMEOUT: 60
+      LOG_LEVEL: INFO
+      METRICS_PORT: 9090
+    ports:
+      - "9090:9090"  # Prometheus metrics
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sicm_network
+    restart: unless-stopped
+    # Limitar recursos en producción
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+        reservations:
+          cpus: "2"
+          memory: 2G
+
+  # ==================== Prometheus (Opcional - Monitoreo) ====================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sicm_prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    networks:
+      - sicm_network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # ==================== Grafana (Opcional - Visualización) ====================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sicm_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - sicm_network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  sicm_network:
+    driver: bridge
